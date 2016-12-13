@@ -51,5 +51,8 @@ WORKDIR $INSTALL_DIR
 # Expose default HTTP connector port.
 EXPOSE 8090
 
+# Expose Collaborative Editing port
+EXPOSE 8091
+
 # Startup
 CMD ["./bin/catalina.sh", "run"]
