@@ -4,7 +4,7 @@ MAINTAINER BitWeb
 # Setup useful environment variables
 ENV HOME_DIR          /var/atlassian/confluence
 ENV INSTALL_DIR       /opt/atlassian/confluence
-ENV VERSION           6.1.3
+ENV VERSION           6.2.0
 
 # MySQL Connector
 ENV CONNECTOR_VERSION      5.1.40
