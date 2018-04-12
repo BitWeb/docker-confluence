@@ -1,58 +1,38 @@
-FROM bitweb/java:8
-MAINTAINER BitWeb
+FROM anapsix/alpine-java:8_jdk
+MAINTAINER Rain Ramm
 
-# Setup useful environment variables
-ENV HOME_DIR          /var/atlassian/confluence
-ENV INSTALL_DIR       /opt/atlassian/confluence
-ENV VERSION           6.2.0
+ENV RUN_USER            daemon
+ENV RUN_GROUP           daemon
 
-# MySQL Connector
-ENV CONNECTOR_VERSION      5.1.40
-ENV CONNECTOR_DOWNLOAD_URL https://dev.mysql.com/get/Downloads/Connector-J/mysql-connector-java-${CONNECTOR_VERSION}.tar.gz
+# https://confluence.atlassian.com/doc/confluence-home-and-other-important-directories-590259707.html
+ENV CONFLUENCE_HOME          /var/atlassian/application-data/confluence
+ENV CONFLUENCE_INSTALL_DIR   /opt/atlassian/confluence
 
-#################################################
-####     No need to edit below this line     ####
-#################################################
+VOLUME ["${CONFLUENCE_HOME}"]
 
-# Install Confluence dependencies
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends xmlstarlet curl htop nano \
-    && apt-get clean autoclean \
-    && apt-get autoremove --yes \
-    && rm -rf /var/lib/{apt,dpkg,cache,log}
-
-# Install Atlassian Confluence and helper tools and setup initial home directory structure.
-RUN set -x \
-    && mkdir -p                "${HOME_DIR}" \
-    && chmod -R 700            "${HOME_DIR}" \
-    && mkdir -p                "${INSTALL_DIR}/conf" \
-    && curl -Ls                "http://www.atlassian.com/software/confluence/downloads/binary/atlassian-confluence-${VERSION}.tar.gz" | tar -xz --directory "${INSTALL_DIR}" --strip-components=1 --no-same-owner \
-    && curl -Ls                ${CONNECTOR_DOWNLOAD_URL} | tar -xz --directory ${INSTALL_DIR}/confluence/WEB-INF/lib --strip-components=1 --no-same-owner "mysql-connector-java-$CONNECTOR_VERSION/mysql-connector-java-$CONNECTOR_VERSION-bin.jar" \
-    && chmod -R 700            "${INSTALL_DIR}/conf" \
-    && chmod -R 700            "${INSTALL_DIR}/temp" \
-    && chmod -R 700            "${INSTALL_DIR}/logs" \
-    && chmod -R 700            "${INSTALL_DIR}/work" \
-    && echo -e                 "\nconfluence.home=$HOME_DIR" >> "${INSTALL_DIR}/confluence/WEB-INF/classes/confluence-init.properties" \
-    && xmlstarlet              ed --inplace \
-        --delete               "Server/@debug" \
-        --delete               "Server/Service/Connector/@debug" \
-        --delete               "Server/Service/Connector/@useURIValidationHack" \
-        --delete               "Server/Service/Connector/@minProcessors" \
-        --delete               "Server/Service/Connector/@maxProcessors" \
-        --delete               "Server/Service/Engine/@debug" \
-        --delete               "Server/Service/Engine/Host/@debug" \
-        --delete               "Server/Service/Engine/Host/Context/@debug" \
-                               "${INSTALL_DIR}/conf/server.xml" \
-    && touch -d "@0"           "${INSTALL_DIR}/conf/server.xml"
-
-# Set the default working directory as the installation directory.
-WORKDIR $INSTALL_DIR
-
-# Expose default HTTP connector port.
+# Expose HTTP and Synchrony ports
 EXPOSE 8090
-
-# Expose Collaborative Editing port
 EXPOSE 8091
 
-# Startup
-CMD ["./bin/catalina.sh", "run"]
+WORKDIR $CONFLUENCE_HOME
+
+CMD ["/entrypoint.sh", "-fg"]
+ENTRYPOINT ["/sbin/tini", "--"]
+
+RUN apk update -qq \
+    && apk add ca-certificates wget curl openssh bash procps openssl perl ttf-dejavu tini \
+    && update-ca-certificates \
+    && rm -rf /var/lib/{apt,dpkg,cache,log}/ /tmp/* /var/tmp/*
+
+COPY entrypoint.sh              /entrypoint.sh
+
+ARG CONFLUENCE_VERSION=6.8.1
+ARG DOWNLOAD_URL=http://www.atlassian.com/software/confluence/downloads/binary/atlassian-confluence-${CONFLUENCE_VERSION}.tar.gz
+
+COPY . /tmp
+
+RUN mkdir -p                             ${CONFLUENCE_INSTALL_DIR} \
+    && curl -L --silent                  ${DOWNLOAD_URL} | tar -xz --strip-components=1 -C "$CONFLUENCE_INSTALL_DIR" \
+    && chown -R ${RUN_USER}:${RUN_GROUP} ${CONFLUENCE_INSTALL_DIR}/ \
+    && sed -i -e 's/-Xms\([0-9]\+[kmg]\) -Xmx\([0-9]\+[kmg]\)/-Xms\${JVM_MINIMUM_MEMORY:=\1} -Xmx\${JVM_MAXIMUM_MEMORY:=\2} \${JVM_SUPPORT_RECOMMENDED_ARGS} -Dconfluence.home=\${CONFLUENCE_HOME}/g' ${CONFLUENCE_INSTALL_DIR}/bin/setenv.sh \
+    && sed -i -e 's/port="8090"/port="8090" secure="${catalinaConnectorSecure}" scheme="${catalinaConnectorScheme}" proxyName="${catalinaConnectorProxyName}" proxyPort="${catalinaConnectorProxyPort}"/' ${CONFLUENCE_INSTALL_DIR}/conf/server.xml
